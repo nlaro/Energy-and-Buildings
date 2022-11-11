@@ -1,0 +1,564 @@
+---
+title: "Energy Efficiency data analysis"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+The aim is to perform energy analysis using 12 different building shapes
+simulated in Ecotect in order to get efficient building designs.
+
+The dataset contains eight attributes (or features, denoted by X1...X8) and two
+responses (or outcomes, denoted by y1 and y2). 
+
+Specifically:
+X1 Relative Compactness: volume to surface ratio $Rc = 6 * V^{2/3} * S^{-1}$ 
+V: volume (constant and equal to 771.75)
+S:the Surface Area
+
+X2: Surface Area
+X3: Wall Area
+X4: Roof Area
+X5: Overall Height
+X6: Orientation: Factor with 4 levels "North", "Easth", "South", "West"
+X7: Glazing Area: Factor with 4 levels 0%, 10%, 25%, 40%
+X8: Glazing Area Distribution: factor with 6 levels "None", "Uniform", "North", "Easth", "South", "West"
+y1: Heating Load
+y2: Cooling Load
+
+```{r}
+library(readxl)
+ENB2012_data <- read_excel("ENB2012_data.xlsx")
+ENB2012_data <- as.data.frame(ENB2012_data)
+colnames(ENB2012_data) <- c("Relative_compactness", "Surface_Area", "Wall_Area",
+                         "Roof_Area", "Overall_Height", "Orientation",
+                         "Glazing_Area", "Glazing_Area_Distribution", 
+                         "Heating_Load", "Cooling_Load")
+
+
+ENB2012_data$Orientation <- as.factor(ENB2012_data$Orientation)
+levels(ENB2012_data$Orientation) <- c("North", "Easth", "South", "West")
+ENB2012_data$Glazing_Area <- as.factor(ENB2012_data$Glazing_Area)
+levels(ENB2012_data$Glazing_Area) <- c("0%", "10%", "25%", "40%")
+ENB2012_data$Glazing_Area_Distribution <- as.factor(ENB2012_data$Glazing_Area_Distribution)
+levels(ENB2012_data$Glazing_Area_Distribution) <- c("None", "Uniform", "North", "Easth", "South", "West")
+ENB2012_data$Glazing_Area_Distribution[ENB2012_data$Glazing_Area_Distribution=="0"] <- "None"
+ENB2012_data$Glazing_Area_Distribution[ENB2012_data$Glazing_Area_Distribution=="1"] <- "Uniform"
+ENB2012_data$Glazing_Area_Distribution[ENB2012_data$Glazing_Area_Distribution=="2"] <- "North"
+ENB2012_data$Glazing_Area_Distribution[ENB2012_data$Glazing_Area_Distribution=="3"] <- "Easth"
+ENB2012_data$Glazing_Area_Distribution[ENB2012_data$Glazing_Area_Distribution=="4"] <- "South"
+ENB2012_data$Glazing_Area_Distribution[ENB2012_data$Glazing_Area_Distribution=="5"] <- "West"
+
+head(ENB2012_data)
+
+```
+```{r}
+summary(ENB2012_data)
+```
+**RESPONSES**
+```{r}
+library(ggplot2)
+ggplot(ENB2012_data, aes(x = Heating_Load))+
+  geom_histogram(binwidth = 3, fill = "#404040", color = "black", alpha = 0.9)+
+  theme_bw()+
+  labs(x = NULL,
+       y = NULL,
+       title = "Histogram of Heating Load")
+
+ggplot(ENB2012_data, aes(x = Cooling_Load))+
+  geom_histogram(binwidth = 3, fill = "#004C99", color = "black", alpha = 0.9)+
+  theme_bw()+
+  labs(x = NULL,
+       y = NULL,
+       title = "Histogram of Cooling Load")
+```
+**CORRELATION**
+```{r}
+corr <- cor(ENB2012_data[,-c(6,7,8)], method = "spearman"); corr
+```
+```{r}
+library(ggcorrplot)
+ggcorrplot(corr, hc.order = TRUE, type = "lower", lab = TRUE)
+```
+
+Relative Compactness and Surface Area are perfectly inversely proportional, 
+which is because in the simulations we have assumed that the volume of the 
+buildings is constant (there is an analytic formula linking the surface area to 
+RC and volume). 
+
+From the data we also have:
+
+$$Surface Area = Wall Area + 2 * Roof Area$$ 
+
+Therefore, we have a linear combination for these 3 variablese (Not detected by the 
+correlation matrix because it checks only pairwise)
+
+Roof Area is also highly correlated with Overall Height: they share a correlation
+coefficient of -0.93 indicating high negative relationship: this is due to the 
+fact that the different buildings shapes have all the same volume.
+Hence, buildings with a large roof area can't be high and viceversa. 
+
+
+We can also notice that the two responses Cooling Load and Heating Load have an high 
+level of correlation: hence we can state that the effect of the predictors on both 
+the responses is almost the same. 
+
+```{r}
+cor(ENB2012_data$Heating_Load, ENB2012_data$Cooling_Load, method = "spearman")
+```
+**VIF ANALYSIS**
+
+Let's perform the vif analysis by just removing the perfect correlated predictors 
+Surface Area and Roof Area.
+```{r}
+z <- lm(Heating_Load~Relative_compactness+Overall_Height+Orientation+
+          Glazing_Area+Glazing_Area_Distribution+Wall_Area, data = ENB2012_data)
+
+library(faraway)
+faraway::vif(z)
+```
+We can still see that there's a problem of collinearity among Relative Compactness,
+Overall Height and Wall Area.
+Let's now try to remove Wall Area
+```{r}
+a <- lm(Heating_Load~Relative_compactness+Overall_Height+Orientation+
+          Glazing_Area+Glazing_Area_Distribution, data = ENB2012_data)
+faraway::vif(a)
+
+```
+
+At this stage Relative compactnessa and Overall Height looks fine.
+Consider now the two factor variables Glazing Area and Glazing Area Distribution 
+where there seems to be correlation. 
+As said before Glazing Area refers to the percentage of glazing the building has 
+while Glazing Area Distribution is related to its distribution. It seems natural
+to state that for buildings with 0% glazing area, there will not be any distribution.
+
+
+**GLAZING AREA DISTRIBUTION**
+```{r}
+par(mfrow=c(1,2))
+boxplot(Heating_Load ~ Glazing_Area_Distribution, data = ENB2012_data)
+boxplot(Cooling_Load ~ Glazing_Area_Distribution, data = ENB2012_data)
+
+ggplot(ENB2012_data, aes(Glazing_Area_Distribution, Heating_Load))+
+  geom_boxplot()+
+  geom_point(aes(colour = Glazing_Area))+
+  theme_bw()
+```
+
+```{r}
+b<- lm(Heating_Load ~ Glazing_Area_Distribution, data = ENB2012_data)
+summary(b)
+```
+```{r}
+ENB2012_data$Glazing_Area_Distribution <- relevel(factor(ENB2012_data$Glazing_Area_Distribution), ref = 2)
+c <- lm(Heating_Load ~ Glazing_Area_Distribution, data = ENB2012_data)
+summary(c)
+```
+No significant difference of Heating Load with respect to the different levels of Orientation
+is displayed: the only significant difference lays between having a distribution, 
+namely having glazing, and not having a distribution, so not having glazing. 
+The p-value of the F-test is indeed 3.69e-06: therefore, when taken alone, the
+predictor seems to be significant and to affect the responses.
+
+**GLAZING AREA**
+Let's now investigate deeper the variable Glazing Area
+```{r}
+d <- lm(Heating_Load ~ Glazing_Area, data = ENB2012_data)
+summary(d) 
+```
+
+
+```{r}
+boxplot(Heating_Load ~ Glazing_Area, data = ENB2012_data, xlab = "Glazing Area",
+        ylab = "Heating Load")
+
+ggplot(ENB2012_data, aes(Glazing_Area, Heating_Load))+
+  geom_boxplot()+
+  geom_point(aes(colour=Glazing_Area_Distribution))+
+  theme_bw()
+```
+The percentage of glazing area on the buildings seems to affect the response Heating Load. 
+P-value of the F-test is indeed 5.09e-10, which leads us to reject the null hypotheses
+that the there is no significant difference between the null model and the model with the
+predictor.
+
+We now want to check if the two predictors, Glazing Area and Glazing Area
+Distribution, share some kind of interaction between each other in order to create a proper
+model taking into account both of them.  
+In this way we are testing if the factor Glazing Area Distribution is still
+significant and must be considered for our regression model.
+```{r}
+interaction.plot(ENB2012_data$Glazing_Area_Distribution, ENB2012_data$Glazing_Area,
+                 ENB2012_data$Heating_Load, xlab = "Glazing Area Distribution",
+                 ylab = "Heating Load", col = c(1:4), legend = T, trace.label = "Glazing Area" )
+```
+Since lines are parallel there does not seem to be any interaction. 
+
+```{r}
+e <- aov(Heating_Load~Glazing_Area*Glazing_Area_Distribution, ENB2012_data)
+summary(e)
+```
+Implementing a model with the interaction term shows that it is not signficant. 
+
+```{r}
+e <- lm(Heating_Load~Glazing_Area + Glazing_Area_Distribution + Orientation, data = ENB2012_data)
+anova(e)
+```
+We can observe that the factor Glazing Area Distribution is still not significant
+and hence can be removed from the model since it can be resumed from the variable
+Glazing Area.
+
+
+**MODEL SELECTION**
+```{r}
+library(leaps)
+regs <- regsubsets(Heating_Load~Relative_compactness+Overall_Height+
+          Glazing_Area+Orientation, data = ENB2012_data)
+rs <- summary(regs)
+rs$which
+```
+
+```{r}
+n <- nrow(ENB2012_data)
+AIC <- n*log(rs$rss/n) + (1:8)*2
+plot(1:8, AIC, ylab = "AIC", xlab = "Number of parameters")
+```
+Since we want to minimise the AIC, the above suggest to take a model with 5 predictors,
+that would be Relative Compactness, Overall Height and Glazing Area. 
+With regards to Glazing Area, within the regsubsets analysis each level is considered to be
+a single predictor, which are four but one, the reference level, stays with the intercept. 
+
+```{r}
+plot(1:8, rs$bic, ylab = "BIC", xlab = "Number of parameters")
+```
+Even with the BIC analysis, we end up with the same conclusion that Orientation is not 
+worthwhile to be included in the model. 
+
+
+**ORIENTATION**
+
+```{r}
+par(mfrow= c(1,2))
+boxplot(Heating_Load ~ Orientation, data = ENB2012_data, ylab = "Heating Load")
+boxplot(Cooling_Load ~ Orientation, data = ENB2012_data, ylab = "Cooling Load")
+
+
+ggplot(ENB2012_data, aes(Orientation, Heating_Load))+
+  geom_boxplot()+
+  geom_point()+
+  theme_bw()
+```
+
+```{r}
+f <- lm(Heating_Load ~ Orientation, data = ENB2012_data)
+summary(f)
+```
+Indeed, there does not seem to be any difference within the four levels of Orientation
+since the boxplots overlap and the p-value of the F test is almost 1, leading to the 
+conclusion that there is no significant difference between the null model and the model with
+the predictor Orientation. 
+
+
+**BROKEN STICK REGRESSION FOR RELATIVE COMPACTNESS**
+
+```{r}
+plot(Heating_Load ~ Relative_compactness, data = ENB2012_data)
+```
+We can observe 2 different patterns for buildings with small and large RC: in 
+particular a decreasing relationship for RC from 0.6 to 0.75 and then a jump, 
+following again a decreasing pattern. 
+```{r}
+g <- lm(Heating_Load~Relative_compactness, data = ENB2012_data)
+plot(Heating_Load~Relative_compactness, data = ENB2012_data)
+abline(g, col = 2, lwd = 2)
+```
+With regards to the overall effect of RC on HL we can although observe a positive
+relationship between HL and RC, due to the jump we can observe at RC ~ 0.75.
+
+
+Let's now try to separate the patterns considering two different subsets.
+```{r}
+h <- lm(Heating_Load ~ Relative_compactness , data = ENB2012_data, subset = Relative_compactness < 0.75)
+summary(h)
+
+```
+
+```{r}
+i <- lm(Heating_Load ~ Relative_compactness, data = ENB2012_data, subset = Relative_compactness >= 0.75)
+summary(i)
+```
+
+```{r}
+beta1 <- coef(h); beta2 <- coef(i)
+plot(Heating_Load ~ Relative_compactness, data = ENB2012_data,
+     xlab = "Relative Compactness", ylab = "Heating Load")
+abline(v=0.75)
+segments(0.6,beta1[1]+beta1[2]*0.6,0.75,beta1[1]+beta1[2]*0.75, col = "blue", lwd = 2)
+segments(0.75,beta2[1]+beta2[2]*0.75,1,beta2[1]+beta2[2]*1, col = "blue", lwd = 2)
+
+B_l <- function(x) ifelse(x<0.75, 0.75-x, 0)
+B_r <- function(x) ifelse(x>0.75, x-0.75, 0)
+lmod <- lm(Heating_Load~B_l(Relative_compactness)+B_r(Relative_compactness),
+           data = ENB2012_data)
+summary(lmod)
+x <- seq(0.5:1, by = 0.01)
+beta <- coef(lmod)
+py <- beta[1]+beta[2]*B_l(x)+beta[3]*B_r(x)
+lines(x,py,col=2, lwd = 2)
+```
+When dealing with a broken stick regression imposing the continuity 
+changes the sign of the slope for both RC patterns.
+
+From a deeper analysis we can observe that the leap we see at point
+RC=0.75 is due to the fact that all buildings with RC<0.75 have a value of Overall
+Height of 3 while all buildings with RC>0.75 have Overall Height = 7:
+
+Let's then try to perform a broken stick regression without imposing the continuity
+but only separating the 2 patterns.
+```{r}
+B2_l <- function(x) ifelse(x<0.75, x, 0)
+B2_r <- function(x) ifelse(x>0.75, x, 0)
+lmod_nc <- lm(Heating_Load~B2_l(Relative_compactness)+B2_r(Relative_compactness),
+           data = ENB2012_data)
+summary(lmod_nc)
+beta3 <- coef(lmod_nc)
+plot(Heating_Load ~ Relative_compactness, data = ENB2012_data)
+abline(v=0.75)
+segments(0.5,beta3[1]+beta3[2]*0.5,0.75,beta3[1]+beta3[2]*0.75, col = "blue", lwd = 2)
+segments(0.75,beta3[1]+beta3[3]*0.75,1,beta3[1]+beta3[3]*1, col = "blue", lwd = 2)
+```
+
+**OVERALL HEIGHT**
+
+```{r}
+plot(Heating_Load~Overall_Height, data = ENB2012_data)
+plot(Overall_Height~Relative_compactness, data = ENB2012_data)
+abline(v=0.75, col = 2)
+```
+We can indeed see that Overall Height only takes 2 values, 3.5 and 7.0;
+it hence represents buildings with 1 or 2 floors, namely buildings with RC<0.75 and
+RC>0.75. 
+In other words,considering then a broken stick regression to separate the
+behaviours for RC smaller and greater than 0.75 means separating buildings with 
+Overall Height of 3.5 and 7. 
+For this reason, it does not make sense anymore to consider both
+the variable Overall Height and the broken stick regression for Relative Compactness as
+they explain the exact same thing and we would have unidentifiability problems. 
+```{r}
+lm <- lm(Heating_Load~B2_l(Relative_compactness)+B2_r(Relative_compactness)+
+           Glazing_Area+Overall_Height,
+           data = ENB2012_data)
+vif(lm)
+```
+Indeed VIFs literally blow up. 
+
+
+
+
+
+We now have two ways to proceed: consider Overall Height as continuous predictor
+or consider it as factor with 2 levels since we con only observe 2 values (3.5 and 7). 
+This is due to the fact that builidngs are generated by simulation using Ecotect: 
+since we would like to study the general effect of the input variables to determine
+the output variables such as Heating Load and Cooling Load, we choose to keep 
+Overall Height as continuous variable not to overfit the model and not to reduce 
+the study only to buildings with 1 or 2 floors as in real life those could be higher. 
+
+
+```{r}
+mod <- lm(Heating_Load~Relative_compactness+Glazing_Area+Overall_Height,
+              data = ENB2012_data)
+summary(mod)
+```
+
+**DIAGNOSTIC**
+```{r}
+plot(mod)
+```
+**HETEROSCEDASTICITY**
+We can see that variance is increasing as fitted values get bigger. 
+Let's then try to stabilise the variance by transforming our responses. 
+
+Since we have strictly positive responses we can look for a Box-Cox transformation.
+
+```{r}
+library(faraway); library(MASS)
+boxcox(mod, plotit = T)
+boxcox(mod, plotit = T, lambda = seq(-0.3, 0.3, by = 0.1))
+
+```
+The confidence intervals associated with lambda does not include 1 but rather 0:
+this suggests us to apply a logarithmic transformation. 
+```{r}
+logmod <- lm(log(Heating_Load)~0+Relative_compactness+Glazing_Area+Overall_Height,
+         data = ENB2012_data)
+plot(logmod)
+summary(logmod)
+CLlogmod <- lm(log(Cooling_Load)~0+Relative_compactness+Glazing_Area+Overall_Height,
+         data = ENB2012_data)
+summary(CLlogmod)
+```
+The situation has improved but we can still observe slight 
+heteroscedasticity
+
+**INDIPENDENCE AND IDENTICAL DISTRIBUTION OF ERROR**
+Since we are dealing with a cross-sectional data, namely we are comparing the 
+differences among selected objects (the buildings) with no regards to differences
+in time there's no need to look for auto-correlation. 
+
+Assuming hence that errors are independent but not identically distributed 
+(allowing different variances), we can use weighted least squares (WLS). 
+We do not know a priori the weights: we then try using as weights the reciprocal
+of the square of the estimates of the error standard deviations.
+
+```{r}
+res <- logmod$residuals; fit <- logmod$fitted.values
+
+sd.func <- lm(abs(res)~fit)
+sd <- sd.func$fitted.values #estimates of the error standard deviations
+weights <- 1/sd^2
+wls_mod <- lm(log(Heating_Load)~0+Relative_compactness+Glazing_Area+Overall_Height,
+             data = ENB2012_data,
+             weights = weights)
+plot(wls_mod)
+summary(wls_mod)
+```
+We observe that the situation has slightly improved but we have not reached the 
+perfect homoscedasticity.
+Indeed the Breusch-Pagan Test still rejects the null hypotheses that residuals 
+are homoscedastic.
+```{r}
+library(lmtest)
+bptest(wls_mod)
+```
+Another possible reason for the heteroscedasticity could be that predictors and 
+responses could not be linearly related. 
+Let's then make the partial residual plot, which display the residuals of each
+predictor against the response variable. 
+The blue line shows the expected residuals if the relationship between the predictor
+and response variable was linear. The pink line shows the actual residuals.
+
+If the two lines are significantly different, then this is evidence of a nonlinear 
+relationship.
+
+```{r}
+library(car)
+crPlots(logmod)
+```
+We can see that residuals for both Relative Compactness and Overall Height are
+linear. 
+
+**NORMALITY**
+```{r}
+qqnorm(residuals(wls_mod))
+qqline(residuals(wls_mod))
+shapiro.test(residuals(wls_mod))
+```
+We can observe that errors are not normally distributed but this is not a problem 
+since we have a large number of observation and hence the issue can be handles 
+with the Central Limit Theorem.
+
+
+**LEVERAGES**
+We can sort the values and look for the values that are greater than 2p/n = 14/768. 
+They are faraway from the remaining buildings.
+
+```{r}
+hatv <- hatvalues(logmod)
+buildings <- rownames(ENB2012_data)
+halfnorm(hatv, labs = buildings, ylab = "Leverages")
+abline(h = 2*sum(hatv)/nrow(ENB2012_data))
+which(hatv>2*sum(hatv)/nrow(ENB2012_data))
+```
+
+
+**OUTLIERS**
+```{r}
+cr_value <-  qt(0.05/(2*768), 768, lower.tail = F)
+sr <- rstudent(logmod)
+which(abs(sr)>cr_value)
+```
+No outlier is detected.  
+
+*InFLUENTIAL OBSERVATIONS*
+```{r}
+cook <- cooks.distance(logmod)
+halfnorm(cook,4, labs = buildings, ylab = "Cook's distances" )
+
+```
+Let's now see if having or not having these buildings will produce a big change in our model.
+
+Excluding buildings and comparing outputs
+
+```{r}
+logmodi <- lm(log(Heating_Load)~ 0 + Relative_compactness+Glazing_Area+
+             Overall_Height,
+         data = ENB2012_data, subset = (buildings != c("19","18","20", "17")))
+sumary(logmod)
+sumary(logmodi)
+```
+Not influential at all.
+
+
+**EXTERNAL VALIDATION**
+We are now focused on the predictive power of our model, namely how good it will
+be at predicting new observations.
+Since we do not have a new dataset we split randomly our observation into two halves
+and fit the model on the training dataset.
+```{r}
+library(boot)
+set.seed(1)
+train <- sample(nrow(ENB2012_data), nrow(ENB2012_data)/2)
+test <- ENB2012_data[-train,]
+pred_mod <- lm(log(Heating_Load)~0+Relative_compactness+Glazing_Area+Overall_Height,
+         data = ENB2012_data, subset = train)
+pred <- predict(pred_mod, newdata = test)
+plot(pred, test$Heating_Load)
+MSE <- mean((test$Heating_Load-pred)^2)
+glm.fit <- glm(Heating_Load~Relative_compactness+Glazing_Area+Overall_Height,
+               data = ENB2012_data)
+mse <- cv.glm(ENB2012_data, glm.fit)
+mse$delta
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
